@@ -16,10 +16,34 @@ FLUTTER_ASSERT_ARC
 @property(nonatomic, copy) NSString* autofillId;
 
 - (void)setEditableTransform:(NSArray*)matrix;
-- (BOOL)setTextInputState:(NSDictionary*)state;
+- (void)setTextInputState:(NSDictionary*)state;
 - (void)setMarkedRect:(CGRect)markedRect;
 - (void)updateEditingState;
 - (BOOL)isVisibleToAutofill;
+
+@end
+
+@interface FlutterTextInputViewSpy : FlutterTextInputView
+@property(nonatomic, assign) UIAccessibilityNotifications receivedNotification;
+@property(nonatomic, assign) id receivedNotificationTarget;
+@property(nonatomic, assign) BOOL isAccessibilityFocused;
+
+- (void)postAccessibilityNotification:(UIAccessibilityNotifications)notification target:(id)target;
+
+@end
+
+@implementation FlutterTextInputViewSpy {
+}
+
+- (void)postAccessibilityNotification:(UIAccessibilityNotifications)notification target:(id)target {
+  self.receivedNotification = notification;
+  self.receivedNotificationTarget = target;
+}
+
+- (BOOL)accessibilityElementIsFocused {
+  return _isAccessibilityFocused;
+}
+
 @end
 
 @interface FlutterSecureTextInputView : FlutterTextInputView
@@ -33,7 +57,7 @@ FLUTTER_ASSERT_ARC
     NSMutableDictionary<NSString*, FlutterTextInputView*>* autofillContext;
 
 - (void)collectGarbageInputViews;
-- (UIView*)textInputParentView;
+- (NSArray<UIView*>*)textInputViews;
 @end
 
 @interface FlutterTextInputPluginTest : XCTestCase
@@ -71,6 +95,22 @@ FLUTTER_ASSERT_ARC
                              }];
 }
 
+- (void)setTextInputShow {
+  FlutterMethodCall* setClientCall = [FlutterMethodCall methodCallWithMethodName:@"TextInput.show"
+                                                                       arguments:@[]];
+  [textInputPlugin handleMethodCall:setClientCall
+                             result:^(id _Nullable result){
+                             }];
+}
+
+- (void)setTextInputHide {
+  FlutterMethodCall* setClientCall = [FlutterMethodCall methodCallWithMethodName:@"TextInput.hide"
+                                                                       arguments:@[]];
+  [textInputPlugin handleMethodCall:setClientCall
+                             result:^(id _Nullable result){
+                             }];
+}
+
 - (NSMutableDictionary*)mutableTemplateCopy {
   if (!_template) {
     _template = @{
@@ -88,7 +128,7 @@ FLUTTER_ASSERT_ARC
 }
 
 - (NSArray<FlutterTextInputView*>*)installedInputViews {
-  return [textInputPlugin.textInputParentView.subviews
+  return (NSArray<FlutterTextInputView*>*)[textInputPlugin.textInputViews
       filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"self isKindOfClass: %@",
                                                                    [FlutterTextInputView class]]];
 }
@@ -211,71 +251,45 @@ FLUTTER_ASSERT_ARC
   XCTAssertEqual(updateCount, 6);
 }
 
-- (void)testTextChangesTriggerUpdateEditingClient {
+- (void)testTextChangesDoNotTriggerUpdateEditingClient {
   FlutterTextInputView* inputView = [[FlutterTextInputView alloc] init];
   inputView.textInputDelegate = engine;
+
+  __block int updateCount = 0;
+  OCMStub([engine updateEditingClient:0 withState:[OCMArg isNotNil]])
+      .andDo(^(NSInvocation* invocation) {
+        updateCount++;
+      });
 
   [inputView.text setString:@"BEFORE"];
+  XCTAssertEqual(updateCount, 0);
+
   inputView.markedTextRange = nil;
   inputView.selectedTextRange = nil;
+  XCTAssertEqual(updateCount, 1);
 
-  // Text changes trigger update.
-  XCTAssertTrue([inputView setTextInputState:@{@"text" : @"AFTER"}]);
+  // Text changes don't trigger an update.
+  XCTAssertEqual(updateCount, 1);
+  [inputView setTextInputState:@{@"text" : @"AFTER"}];
+  XCTAssertEqual(updateCount, 1);
+  [inputView setTextInputState:@{@"text" : @"AFTER"}];
+  XCTAssertEqual(updateCount, 1);
 
-  // Don't send anything if there's nothing new.
-  XCTAssertFalse([inputView setTextInputState:@{@"text" : @"AFTER"}]);
-}
-
-- (void)testSelectionChangeDoesNotTriggerUpdateEditingClient {
-  FlutterTextInputView* inputView = [[FlutterTextInputView alloc] init];
-  inputView.textInputDelegate = engine;
-
-  [inputView.text setString:@"SELECTION"];
-  inputView.markedTextRange = nil;
-  inputView.selectedTextRange = nil;
-
-  BOOL shouldUpdate = [inputView
+  // Selection changes don't trigger an update.
+  [inputView
       setTextInputState:@{@"text" : @"SELECTION", @"selectionBase" : @0, @"selectionExtent" : @3}];
-  XCTAssertFalse(shouldUpdate);
-
-  shouldUpdate = [inputView
+  XCTAssertEqual(updateCount, 1);
+  [inputView
       setTextInputState:@{@"text" : @"SELECTION", @"selectionBase" : @1, @"selectionExtent" : @3}];
-  XCTAssertFalse(shouldUpdate);
+  XCTAssertEqual(updateCount, 1);
 
-  shouldUpdate = [inputView
-      setTextInputState:@{@"text" : @"SELECTION", @"selectionBase" : @1, @"selectionExtent" : @2}];
-  XCTAssertFalse(shouldUpdate);
-
-  // Don't send anything if there's nothing new.
-  shouldUpdate = [inputView
-      setTextInputState:@{@"text" : @"SELECTION", @"selectionBase" : @1, @"selectionExtent" : @2}];
-  XCTAssertFalse(shouldUpdate);
-}
-
-- (void)testComposingChangeDoesNotTriggerUpdateEditingClient {
-  FlutterTextInputView* inputView = [[FlutterTextInputView alloc] init];
-  inputView.textInputDelegate = engine;
-
-  // Reset to test marked text.
-  [inputView.text setString:@"COMPOSING"];
-  inputView.markedTextRange = nil;
-  inputView.selectedTextRange = nil;
-
-  BOOL shouldUpdate = [inputView
-      setTextInputState:@{@"text" : @"COMPOSING", @"composingBase" : @0, @"composingExtent" : @3}];
-  XCTAssertFalse(shouldUpdate);
-
-  shouldUpdate = [inputView
+  // Composing region changes don't trigger an update.
+  [inputView
+      setTextInputState:@{@"text" : @"COMPOSING", @"composingBase" : @1, @"composingExtent" : @2}];
+  XCTAssertEqual(updateCount, 1);
+  [inputView
       setTextInputState:@{@"text" : @"COMPOSING", @"composingBase" : @1, @"composingExtent" : @3}];
-  XCTAssertFalse(shouldUpdate);
-
-  shouldUpdate = [inputView
-      setTextInputState:@{@"text" : @"COMPOSING", @"composingBase" : @1, @"composingExtent" : @2}];
-  XCTAssertFalse(shouldUpdate);
-
-  shouldUpdate = [inputView
-      setTextInputState:@{@"text" : @"COMPOSING", @"composingBase" : @1, @"composingExtent" : @2}];
-  XCTAssertFalse(shouldUpdate);
+  XCTAssertEqual(updateCount, 1);
 }
 
 - (void)testUITextInputAvoidUnnecessaryUndateEditingClientCalls {
@@ -767,6 +781,41 @@ FLUTTER_ASSERT_ARC
   XCTAssertEqual(self.installedInputViews.count, 2);
 
   [self commitAutofillContextAndVerify];
+}
+
+#pragma mark - Accessibility - Tests
+
+- (void)testUITextInputAccessibilityNotHiddenWhenShowed {
+  // Send show text input method call.
+  [self setTextInputShow];
+  // Find all the FlutterTextInputViews we created.
+  NSArray<FlutterTextInputView*>* inputFields = self.installedInputViews;
+
+  // The input view should not be hidden.
+  XCTAssertEqual([inputFields count], 1u);
+
+  // Send hide text input method call.
+  [self setTextInputHide];
+
+  inputFields = self.installedInputViews;
+
+  // The input view should be hidden.
+  XCTAssertEqual([inputFields count], 0u);
+}
+
+- (void)testFlutterTextInputViewDirectFocusToBackingTextInput {
+  FlutterTextInputViewSpy* inputView = [[FlutterTextInputViewSpy alloc] init];
+  inputView.textInputDelegate = engine;
+  UIView* container = [[UIView alloc] init];
+  UIAccessibilityElement* backing =
+      [[UIAccessibilityElement alloc] initWithAccessibilityContainer:container];
+  inputView.backingTextInputAccessibilityObject = backing;
+  // Simulate accessibility focus.
+  inputView.isAccessibilityFocused = YES;
+  [inputView accessibilityElementDidBecomeFocused];
+
+  XCTAssertEqual(inputView.receivedNotification, UIAccessibilityScreenChangedNotification);
+  XCTAssertEqual(inputView.receivedNotificationTarget, backing);
 }
 
 @end

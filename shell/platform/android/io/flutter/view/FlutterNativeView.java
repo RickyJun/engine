@@ -6,9 +6,9 @@ package io.flutter.view;
 
 import android.app.Activity;
 import android.content.Context;
-import android.util.Log;
 import androidx.annotation.NonNull;
 import androidx.annotation.UiThread;
+import io.flutter.Log;
 import io.flutter.app.FlutterPluginRegistry;
 import io.flutter.embedding.engine.FlutterEngine.EngineLifecycleListener;
 import io.flutter.embedding.engine.FlutterJNI;
@@ -164,6 +164,11 @@ public class FlutterNativeView implements BinaryMessenger {
         return;
       }
       mPluginRegistry.onPreEngineRestart();
+    }
+
+    public void onEngineWillDestroy() {
+      // The old embedding doesn't actually have a FlutterEngine. It interacts with the JNI
+      // directly.
     }
   }
 }

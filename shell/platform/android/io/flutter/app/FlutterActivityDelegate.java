@@ -19,12 +19,12 @@ import android.content.res.Resources.NotFoundException;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.os.Bundle;
-import android.util.Log;
 import android.util.TypedValue;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager.LayoutParams;
+import io.flutter.Log;
 import io.flutter.plugin.common.PluginRegistry;
 import io.flutter.plugin.platform.PlatformPlugin;
 import io.flutter.util.Preconditions;
@@ -322,9 +322,6 @@ public final class FlutterActivityDelegate
     final int observatoryPort = intent.getIntExtra("observatory-port", 0);
     if (observatoryPort > 0) {
       args.add("--observatory-port=" + Integer.toString(observatoryPort));
-    }
-    if (intent.getBooleanExtra("disable-service-auth-codes", false)) {
-      args.add("--disable-service-auth-codes");
     }
     if (intent.getBooleanExtra("endless-trace-buffer", false)) {
       args.add("--endless-trace-buffer");
